@@ -22,18 +22,12 @@ let seats = {
 const generateUserId = () => `user_${Math.random().toString(36).substring(2, 9)}`;
 
 // --- Seat Locking Utility/Cleanup Logic ---
-
-/**
- * Checks all seats and clears any expired locks.
- * IMPORTANT: This must be called before checking or changing a seat's state.
- */
 const cleanupExpiredLocks = () => {
     const now = Date.now();
     for (const seatId in seats) {
         const seat = seats[seatId];
-        // If the seat is locked and the lock has expired
         if (seat.status === 'locked' && seat.lockExpiresAt < now) {
-            // console.log(`Lock expired for seat ${seatId}. Clearing lock.`);
+            console.log(`Lock expired for seat ${seatId}. Clearing lock.`);
             seat.status = 'available';
             seat.lockedBy = null;
             seat.lockExpiresAt = null;
@@ -47,45 +41,35 @@ const cleanupExpiredLocks = () => {
  * 1. GET /seats - View available seats
  */
 app.get('/seats', (req, res) => {
-    cleanupExpiredLocks(); // Ensure current status is accurate
-    
-    // Create a cleaner view for the client
+    cleanupExpiredLocks(); 
     const view = {};
     for (const seatId in seats) {
         view[seatId] = { status: seats[seatId].status };
     }
-    
     res.status(200).json(view);
 });
 
-
 /**
  * 2. POST /seats/lock - Temporarily lock a seat
- * Requires a seatId and a userId in the body.
  */
 app.post('/seats/lock', (req, res) => {
-    // Basic Request validation
     const { seatId, userId } = req.body;
     if (!seatId || !userId) {
         return res.status(400).json({ success: false, message: "Missing seatId or userId in request body." });
     }
-    
-    // CRITICAL SECTION: Ensure data consistency by cleaning expired locks
+
     cleanupExpiredLocks(); 
-    
     const seat = seats[seatId];
     if (!seat) {
         return res.status(404).json({ success: false, message: `Seat ${seatId} does not exist.` });
     }
 
-    // Concurrency control: Check status
     if (seat.status === 'booked') {
         return res.status(409).json({ success: false, message: `Seat ${seatId} is already booked.` });
     }
-    
+
     if (seat.status === 'locked') {
         if (seat.lockedBy === userId) {
-             // Allow user to re-lock/extend their own lock
             seat.lockExpiresAt = Date.now() + SEAT_LOCK_DURATION_MS;
             return res.status(200).json({ 
                 success: true, 
@@ -108,10 +92,8 @@ app.post('/seats/lock', (req, res) => {
     });
 });
 
-
 /**
- * 3. POST /seats/confirm - Confirm a booking (requires an active lock)
- * Requires a seatId and a userId in the body.
+ * 3. POST /seats/confirm - Confirm a booking
  */
 app.post('/seats/confirm', (req, res) => {
     const { seatId, userId } = req.body;
@@ -119,9 +101,7 @@ app.post('/seats/confirm', (req, res) => {
         return res.status(400).json({ success: false, message: "Missing seatId or userId in request body." });
     }
 
-    // CRITICAL SECTION: Ensure data consistency
     cleanupExpiredLocks(); 
-    
     const seat = seats[seatId];
     if (!seat) {
         return res.status(404).json({ success: false, message: `Seat ${seatId} does not exist.` });
@@ -131,11 +111,9 @@ app.post('/seats/confirm', (req, res) => {
         return res.status(409).json({ success: false, message: `Seat ${seatId} is already permanently booked.` });
     }
 
-    // Check for active lock by the same user
     if (seat.status === 'locked' && seat.lockedBy === userId) {
-        // Success: Confirm the booking
         seat.status = 'booked';
-        seat.lockedBy = userId; // Keep track of who booked it
+        seat.lockedBy = userId;
         seat.lockExpiresAt = null;
 
         return res.status(201).json({ 
@@ -143,8 +121,7 @@ app.post('/seats/confirm', (req, res) => {
             message: `Booking for seat ${seatId} confirmed by user ${userId}.`
         });
     } 
-    
-    // Error cases
+
     if (seat.status === 'locked' && seat.lockedBy !== userId) {
         return res.status(403).json({ success: false, message: `Seat ${seatId} is locked by another user. Cannot confirm.` });
     } else {
@@ -152,7 +129,7 @@ app.post('/seats/confirm', (req, res) => {
     }
 });
 
-// Start the server (for completeness, though not run)
-// app.listen(PORT, () => {
-//     console.log(`Booking API server running at http://localhost:${PORT}`);
-// });
+// --- Start the server ---
+app.listen(PORT, () => {
+    console.log(`Booking API server running at http://localhost:${PORT}`);
+});
